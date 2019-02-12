@@ -1,3 +1,11 @@
+"""
+CUDA_VISIBLE_DEVICES=3 python train.py \
+--data /home/siit/.local/share/Trash/expunged/2720967057/ILSVRC2015/Data/CLS-LOC-200/ \
+--net_type resnet --lr 0.05 --batch_size 8 --depth 50 -j 2 \
+--alpha 300 --print-freq 1 --expname PyramidNet-110 \
+--dataset imagenet --epochs 100
+"""
+
 import argparse
 import os
 import shutil
@@ -16,7 +24,9 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import resnet as RN
 import preresnet as PRN
-import PyramidNet as PYRM
+import PyramidNet as PYRMX
+import pdb
+import numpy as np
 
 from tensorboard_logger import configure, log_value
 
@@ -30,13 +40,13 @@ parser.add_argument('--data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--net_type', default='PyramidNet', type=str,
                     help='networktype: resnet, resnext, densenet, pyamidnet, and so on')
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=0, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch_size', default=128, type=int,
+parser.add_argument('-b', '--batch_size', default=8, type=int,
                     metavar='N', help='mini-batch size (default: 256)')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate')
@@ -81,6 +91,14 @@ parser.set_defaults(augment=True)
 
 best_err1 = 100
 best_err5 = 100
+
+def make_weights_for_balanced_classes(images, nclasses):                        
+    count = [0] * nclasses 
+    for item in images:   
+        count[item[1]] += 1 
+    weight_per_class = [0.] * nclasses                                      
+    N = float(sum(count))  
+    return count
 
 def main():
     global args, best_err1, best_err5
@@ -145,6 +163,13 @@ def main():
                 transforms.ToTensor(),
                 normalize,
             ]))
+        # pdb.set_trace()
+        if not os.path.exists('imagenet_statistics.npy'):
+            print('Dataset processing')
+            data_statistics = make_weights_for_balanced_classes(train_dataset, len(
+                train_dataset.classes))
+            np.save('imagenet_statistics.npy', data_statistics)
+        data_statistics = np.load('imagenet_statistics.npy')
 
         if args.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -283,7 +308,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         # measure accuracy and record loss
         err1, err5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data[0], input.size(0))
+        losses.update(loss.data, input.size(0))
         top1.update(err1[0], input.size(0))
         top5.update(err5[0], input.size(0))
 
@@ -343,7 +368,7 @@ def validate(val_loader, model, criterion, epoch):
 
         # measure accuracy and record loss
         err1, err5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data[0], input.size(0))
+        losses.update(loss.data, input.size(0))
         top1.update(err1[0], input.size(0))
         top5.update(err5[0], input.size(0))
 
